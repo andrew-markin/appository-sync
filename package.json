@@ -1,0 +1,23 @@
+{
+  "name": "gestalt-backend",
+  "version": "0.1.1",
+  "scripts": {
+    "start": "node -r dotenv/config server"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.0",
+    "express": "^4.17.3",
+    "express-validator": "^6.14.0",
+    "morgan": "^1.10.0",
+    "socket.io": "^4.4.1",
+    "sqlite3": "^4.2.0"
+  },
+  "devDependencies": {
+    "eslint": "^7.32.0",
+    "eslint-config-standard": "^16.0.3",
+    "eslint-plugin-import": "^2.25.4",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-promise": "^5.2.0"
+  }
+}
