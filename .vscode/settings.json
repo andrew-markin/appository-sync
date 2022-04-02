@@ -11,13 +11,15 @@
   "files.eol": "\n",
   "files.exclude": {
     "**/node_modules": true,
-    "package-lock.json": true
+    "package-lock.json": true,
+    "storage": true
   },
   "files.insertFinalNewline": true,
   "files.trimFinalNewlines": true,
   "files.trimTrailingWhitespace": true,
   "search.exclude": {
-    "**/node_modules": true
+    "**/node_modules": true,
+    "storage": true
   },
   "workbench.colorCustomizations": {
     "statusBar.background" : "#333333"
