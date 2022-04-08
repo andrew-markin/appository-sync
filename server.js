@@ -4,9 +4,6 @@ const fs = require('fs-extra')
 const Joi = require('joi')
 const path = require('path')
 
-const io = new Server({ cors: { origin: true } })
-const subscriptions = new Map()
-
 // Storage routines
 
 const docLock = new AsyncLock()
@@ -43,6 +40,15 @@ const writeDoc = async (ref, value) => {
 }
 
 // API routines
+
+const io = new Server({ cors: { origin: true } })
+
+io.use((socket, next) => {
+  if (socket.handshake.auth.key === process.env.API_KEY) next()
+  else next(new Error('Access denied'))
+})
+
+const subscriptions = new Map()
 
 const assertAck = (ack) => {
   if (typeof ack !== 'function') {
