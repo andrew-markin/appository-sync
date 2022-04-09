@@ -1,0 +1,12 @@
+{
+  "apps": [{
+    "name": "gestalt",
+    "script": "server.js",
+    "node_args": "-r dotenv/config",
+    "exec_mode": "fork_mode",
+    "instances": 1,
+    "autorestart": true,
+    "watch": false,
+    "max_memory_restart": "512M"
+  }]
+}
