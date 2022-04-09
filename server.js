@@ -1,18 +1,25 @@
-const { Server } = require('socket.io')
-const AsyncLock = require('async-lock')
-const fs = require('fs-extra')
-const Joi = require('joi')
-const path = require('path')
+import { fileURLToPath } from 'url'
+import { Server } from 'socket.io'
+import AsyncLock from 'async-lock'
+import fs from 'fs-extra'
+import Joi from 'joi'
+import mortice from 'mortice'
+import path from 'path'
+
+const execLock = mortice('exec-lock', { timeout: 30000 })
 
 // Storage routines
 
 const docLock = new AsyncLock()
 
-const storage = process.env.STORAGE || path.join(__dirname, './storage')
-fs.ensureDirSync(storage)
+const modulePath = fileURLToPath(import.meta.url)
+const moduleDir = path.dirname(modulePath)
+
+const storageDir = process.env.STORAGE || path.join(moduleDir, './storage')
+fs.ensureDirSync(storageDir)
 
 const getDocPath = (ref) => {
-  return path.join(storage, ref.substring(0, 2), `${ref}.json`)
+  return path.join(storageDir, ref.substring(0, 2), `${ref}.json`)
 }
 
 const readDoc = async (ref) => {
@@ -41,9 +48,9 @@ const writeDoc = async (ref, value) => {
 
 // API routines
 
-const io = new Server({ cors: { origin: true } })
+const server = new Server({ cors: { origin: true } })
 
-io.use((socket, next) => {
+server.use((socket, next) => {
   if (socket.handshake.auth.key === process.env.API_KEY) next()
   else next(new Error('Access denied'))
 })
@@ -66,7 +73,7 @@ const refSchema = Joi.string().allow(null).lowercase().hex().length(64)
 const dataSchema = Joi.string().base64().max(1024 * 1024)
 const versionSchema = Joi.number().optional().min(1)
 
-io.on('connection', (socket) => {
+server.on('connection', (socket) => {
   console.log(`Socket ${socket.id} connected`)
 
   const unsubscribe = () => {
@@ -102,16 +109,20 @@ io.on('connection', (socket) => {
     console.log(`Socket ${socket.id} disconnected due to ${reason}`)
   })
 
-  socket.on('now', (ack) => {
+  socket.on('now', async (ack) => {
+    const release = await execLock.readLock()
     try {
       assertAck(ack)
       ack({ timestamp: Date.now() })
     } catch (err) {
       return ack({ error: err.message })
+    } finally {
+      release()
     }
   })
 
   socket.on('ref', async (ref, ack) => {
+    const release = await execLock.readLock()
     try {
       assertAck(ack)
       await refSchema.validateAsync(ref)
@@ -119,10 +130,13 @@ io.on('connection', (socket) => {
       ack()
     } catch (err) {
       return ack({ error: err.message })
+    } finally {
+      release()
     }
   })
 
   socket.on('get', async ({ known }, ack) => {
+    const release = await execLock.readLock()
     try {
       assertAck(ack)
       assertRef(socket)
@@ -143,10 +157,13 @@ io.on('connection', (socket) => {
       })
     } catch (err) {
       return ack({ error: err.message })
+    } finally {
+      release()
     }
   })
 
   socket.on('set', async ({ data, version }, ack) => {
+    const release = await execLock.readLock()
     try {
       assertAck(ack)
       assertRef(socket)
@@ -186,8 +203,21 @@ io.on('connection', (socket) => {
       })
     } catch (err) {
       return ack({ error: err.message })
+    } finally {
+      release()
     }
   })
 })
 
-io.listen(3000)
+const shutdown = async () => {
+  await execLock.writeLock()
+  console.log('\nShutting down...')
+  server.close(() => {
+    process.exit(0)
+  })
+}
+
+process.on('SIGINT', shutdown)
+process.on('SIGTERM', shutdown)
+
+server.listen(3000)
