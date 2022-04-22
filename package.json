@@ -1,5 +1,5 @@
 {
-  "name": "gestalt-backend",
+  "name": "appository-sync",
   "version": "0.1.1",
   "scripts": {
     "start": "node -r dotenv/config server"
