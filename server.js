@@ -57,12 +57,6 @@ server.use((socket, next) => {
 
 const subscriptions = new Map()
 
-const assertAck = (ack) => {
-  if (typeof ack !== 'function') {
-    throw new Error('No acknowledgement callback provided')
-  }
-}
-
 const assertRef = (socket) => {
   if (!socket.ref) {
     throw new Error('Reference is not provided')
@@ -110,9 +104,9 @@ server.on('connection', (socket) => {
   })
 
   socket.on('now', async (ack) => {
+    if (typeof ack !== 'function') return socket.disconnect()
     const release = await execLock.readLock()
     try {
-      assertAck(ack)
       ack({ timestamp: Date.now() })
     } catch (err) {
       return ack({ error: err.message })
@@ -122,9 +116,9 @@ server.on('connection', (socket) => {
   })
 
   socket.on('ref', async (ref, ack) => {
+    if (typeof ack !== 'function') return socket.disconnect()
     const release = await execLock.readLock()
     try {
-      assertAck(ack)
       await refSchema.validateAsync(ref)
       subscribe(ref)
       ack()
@@ -136,9 +130,9 @@ server.on('connection', (socket) => {
   })
 
   socket.on('get', async ({ known }, ack) => {
+    if (typeof ack !== 'function') return socket.disconnect()
     const release = await execLock.readLock()
     try {
-      assertAck(ack)
       assertRef(socket)
       await versionSchema.validateAsync(known)
       const ref = socket.ref
@@ -163,9 +157,9 @@ server.on('connection', (socket) => {
   })
 
   socket.on('set', async ({ data, version }, ack) => {
+    if (typeof ack !== 'function') return socket.disconnect()
     const release = await execLock.readLock()
     try {
-      assertAck(ack)
       assertRef(socket)
       await dataSchema.validateAsync(data)
       await versionSchema.validateAsync(version)
