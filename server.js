@@ -23,8 +23,9 @@ const server = new Server({ cors: { origin: true } })
 
 server.use((socket, next) => {
   socket.bucket = getBucket(socket.handshake.auth.token)
-  if (!socket.bucket) next(new Error('Access denied'))
-  else next()
+  if (!socket.bucket) return next(new Error('Access denied'))
+  socket.ip = socket.handshake.headers['x-real-ip']
+  next()
 })
 
 const subscriptions = new Map()
@@ -185,6 +186,7 @@ server.on('connection', (socket) => {
             nextDoc.version = 1
             nextDoc.created = Date.now()
           }
+          nextDoc.ip = socket.ip || 'unknown'
           await writeDoc(nextDoc)
           done(null, {
             success: true,
