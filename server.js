@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'url'
+import { getBucket } from './auth.js'
 import { Server } from 'socket.io'
 import AsyncLock from 'async-lock'
 import fs from 'fs-extra'
@@ -18,50 +19,15 @@ const moduleDir = path.dirname(modulePath)
 const storageDir = process.env.STORAGE || path.join(moduleDir, './storage')
 fs.ensureDirSync(storageDir)
 
-const getDocPath = (ref) => {
-  return path.join(storageDir, ref.substring(0, 2), `${ref}.json`)
-}
-
-const readDoc = async (ref) => {
-  const docPath = getDocPath(ref)
-  const docBackupPath = `${docPath}.backup`
-  if (await fs.pathExists(docBackupPath)) {
-    // Restore document from backup if needed
-    fs.move(docBackupPath, docPath, { overwrite: true })
-  }
-  // Read document if it exists
-  return (await fs.pathExists(docPath) &&
-          await fs.readJson(docPath, { throws: false })) || undefined
-}
-
-const writeDoc = async (ref, value) => {
-  const docPath = getDocPath(ref)
-  const docBackupPath = `${docPath}.backup`
-  if (await fs.pathExists(docPath)) {
-    // Backup existing version of the document
-    await fs.move(docPath, docBackupPath, { overwrite: true })
-  }
-  // Write document and remove backup
-  await fs.outputJson(docPath, value)
-  await fs.remove(docBackupPath)
-}
-
-// API routines
-
 const server = new Server({ cors: { origin: true } })
 
 server.use((socket, next) => {
-  if (socket.handshake.auth.key === process.env.API_KEY) next()
-  else next(new Error('Access denied'))
+  socket.bucket = getBucket(socket.handshake.auth.token)
+  if (!socket.bucket) next(new Error('Access denied'))
+  else next()
 })
 
 const subscriptions = new Map()
-
-const assertRef = (socket) => {
-  if (!socket.ref) {
-    throw new Error('Reference is not provided')
-  }
-}
 
 const refSchema = Joi.string().allow(null).lowercase().hex().length(64)
 const dataSchema = Joi.string().base64().max(1024 * 1024)
@@ -70,32 +36,70 @@ const versionSchema = Joi.number().optional().min(1)
 server.on('connection', (socket) => {
   console.log(`Socket ${socket.id} connected`)
 
-  const unsubscribe = () => {
-    const ref = socket.ref
-    if (!ref) return
-    let sockets = subscriptions.get(ref) || []
-    sockets = sockets.filter((item) => item !== socket)
-    if (sockets.length > 0) subscriptions.set(ref, sockets)
-    else subscriptions.delete(ref)
+  const assertRef = () => {
+    if (!socket.ref) throw new Error('Reference is not provided')
+  }
+
+  const getKey = () => {
+    return `${socket.bucket}:${socket.ref}`
   }
 
   const subscribe = (ref) => {
     unsubscribe()
     socket.ref = ref
     if (!ref) return
-    const sockets = subscriptions.get(ref) || []
+    const key = getKey()
+    const sockets = subscriptions.get(key) || []
     sockets.push(socket)
-    subscriptions.set(ref, sockets)
+    subscriptions.set(key, sockets)
+  }
+
+  const unsubscribe = () => {
+    if (!socket.ref) return
+    const key = getKey()
+    let sockets = subscriptions.get(key) || []
+    sockets = sockets.filter((item) => item !== socket)
+    if (sockets.length > 0) subscriptions.set(key, sockets)
+    else subscriptions.delete(key)
   }
 
   const emit = (event, ...args) => {
-    const ref = socket.ref
-    if (!ref) return
-    const sockets = subscriptions.get(ref) || []
+    if (!socket.ref) return
+    const key = getKey()
+    const sockets = subscriptions.get(key) || []
     for (const sibling of sockets) {
       if (sibling === socket) continue
       sibling.emit(event, ...args)
     }
+  }
+
+  const getDocPath = () => {
+    const { bucket, ref } = socket
+    return path.join(storageDir, bucket, ref.substring(0, 2), `${ref}.json`)
+  }
+
+  const readDoc = async () => {
+    const docPath = getDocPath()
+    const docBackupPath = `${docPath}.backup`
+    if (await fs.pathExists(docBackupPath)) {
+      // Restore document from backup if needed
+      fs.move(docBackupPath, docPath, { overwrite: true })
+    }
+    // Read document if it exists
+    return (await fs.pathExists(docPath) &&
+            await fs.readJson(docPath, { throws: false })) || undefined
+  }
+
+  const writeDoc = async (value) => {
+    const docPath = getDocPath()
+    const docBackupPath = `${docPath}.backup`
+    if (await fs.pathExists(docPath)) {
+      // Backup existing version of the document
+      await fs.move(docPath, docBackupPath, { overwrite: true })
+    }
+    // Write document and remove backup
+    await fs.outputJson(docPath, value)
+    await fs.remove(docBackupPath)
   }
 
   socket.on('disconnect', (reason) => {
@@ -133,12 +137,11 @@ server.on('connection', (socket) => {
     if (typeof ack !== 'function') return socket.disconnect()
     const release = await execLock.readLock()
     try {
-      assertRef(socket)
+      assertRef()
       await versionSchema.validateAsync(known)
-      const ref = socket.ref
-      docLock.acquire(ref, async (done) => {
+      docLock.acquire(getKey(), async (done) => {
         try {
-          const doc = await readDoc(ref)
+          const doc = await readDoc()
           done(null, doc && {
             ...(doc.version !== known) && { data: doc.data },
             version: doc.version
@@ -160,14 +163,13 @@ server.on('connection', (socket) => {
     if (typeof ack !== 'function') return socket.disconnect()
     const release = await execLock.readLock()
     try {
-      assertRef(socket)
+      assertRef()
       await dataSchema.validateAsync(data)
       await versionSchema.validateAsync(version)
-      const ref = socket.ref
-      docLock.acquire(ref, async (done) => {
+      docLock.acquire(getKey(), async (done) => {
         try {
           const nextDoc = { data }
-          const prevDoc = await readDoc(ref)
+          const prevDoc = await readDoc()
           if (prevDoc) {
             if ((prevDoc.version !== version)) {
               return done(null, {
@@ -183,7 +185,7 @@ server.on('connection', (socket) => {
             nextDoc.version = 1
             nextDoc.created = Date.now()
           }
-          await writeDoc(ref, nextDoc)
+          await writeDoc(nextDoc)
           done(null, {
             success: true,
             version: nextDoc.version

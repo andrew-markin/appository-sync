@@ -2,7 +2,8 @@
   "name": "appository-sync",
   "version": "0.1.1",
   "scripts": {
-    "start": "node -r dotenv/config server"
+    "start": "node -r dotenv/config server",
+    "token": "node -r dotenv/config token"
   },
   "type": "module",
   "dependencies": {
@@ -10,6 +11,7 @@
     "dotenv": "^16.0.0",
     "fs-extra": "^10.1.0",
     "joi": "^17.6.0",
+    "jsonwebtoken": "^8.5.1",
     "mortice": "^3.0.0",
     "socket.io": "^4.4.1"
   },
