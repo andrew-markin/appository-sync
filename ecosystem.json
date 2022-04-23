@@ -1,6 +1,6 @@
 {
   "apps": [{
-    "name": "gestalt",
+    "name": "appository-sync",
     "script": "server.js",
     "node_args": "-r dotenv/config",
     "exec_mode": "fork_mode",
